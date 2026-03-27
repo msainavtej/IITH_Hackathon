@@ -126,10 +126,10 @@ class FocusTracker:
                         cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
             # cv2.putText(frame, f"Action: {action}", (30, 160),
             #             cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 0, 255), 3)
-            cv2.imshow("Focus Tracker AI", frame)
+            # cv2.imshow("Focus Tracker AI", frame)
 
-            if cv2.waitKey(1) & 0xFF == 27:  # ESC to exit
-                break
+            # if cv2.waitKey(1) & 0xFF == 27:  # ESC to exit
+            #     break
 
             current_time = datetime.now().strftime("%H:%M:%S")
             if time.time() - self._last_logged_time > 1:
