@@ -1,64 +1,62 @@
+
+# Refactored into ActivityTracker class
 import ctypes
 import time
-from pynput import keyboard as kb
 
-stop = False
-
-def on_press(key):
-    global stop
-    try:
-        if key.char == 'q':
-            stop = True
-    except AttributeError:
+class ActivityTracker:
+    def __init__(self):
         pass
 
-def get_active_window_title():
-    # Uses built-in Windows API to get the active window title
-    hwnd = ctypes.windll.user32.GetForegroundWindow()
-    length = ctypes.windll.user32.GetWindowTextLengthW(hwnd)
-    buf = ctypes.create_unicode_buffer(length + 1)
-    ctypes.windll.user32.GetWindowTextW(hwnd, buf, length + 1)
-    return buf.value.strip()
+    @staticmethod
+    def get_active_window_title():
+        hwnd = ctypes.windll.user32.GetForegroundWindow()
+        length = ctypes.windll.user32.GetWindowTextLengthW(hwnd)
+        buf = ctypes.create_unicode_buffer(length + 1)
+        ctypes.windll.user32.GetWindowTextW(hwnd, buf, length + 1)
+        return buf.value.strip()
 
-def classify_activity():
-    window_title = get_active_window_title().lower()
-    print(window_title)
-    
-    # Note: On Windows, browsers put the website name in the window title 
-    # (e.g., "YouTube - Google Chrome"), so we don't need a separate URL grabber!
-    
-    if "visual studio code" in window_title or "vscode" in window_title:
-        return "coding"
-    elif "cmd" in window_title or "powershell" in window_title or "ubuntu" in window_title or "kali" in window_title:
-        return "coding"
-    elif "pycharm" in window_title:
-        return "coding"
-    elif "youtube" in window_title:
-        return "youtube"
-    elif "instagram" in window_title or "x.com" in window_title or "twitter" in window_title:
-        return "wasting"
-    elif "netflix" in window_title or "prime video" in window_title:
-        return "wasting"
-    elif "claude" in window_title or "chatgpt" in window_title:
-        return "studying"
-    elif "gemini" in window_title or "grok" in window_title:
-        return "studying"
-    elif "colab" in window_title or "github" in window_title or "stackoverflow" in window_title:
-        return "coding"
-    elif window_title == "":
-        return "unknown"
-    else:
-        return "browsing"
+    @staticmethod
+    def classify_activity(window_title):
+        title = window_title.lower()
+        if "visual studio code" in title or "vscode" in title:
+            return "coding"
+        elif any(term in title for term in ["cmd", "powershell", "ubuntu", "kali"]):
+            return "coding"
+        elif "pycharm" in title:
+            return "coding"
+        elif "youtube" in title:
+            return "youtube"
+        elif any(term in title for term in ["instagram", "x.com", "twitter"]):
+            return "wasting"
+        elif any(term in title for term in ["netflix", "prime video"]):
+            return "wasting"
+        elif any(term in title for term in ["claude", "chatgpt"]):
+            return "studying"
+        elif any(term in title for term in ["gemini", "grok"]):
+            return "studying"
+        elif any(term in title for term in ["colab", "github", "stackoverflow"]):
+            return "coding"
+        elif title == "":
+            return "unknown"
+        else:
+            return "browsing"
 
-def current_activity():
-    print("Activity Tracker Started. Press 'q' to stop.")
-    while not stop:
-        activity = classify_activity()
-        print(activity)
-        time.sleep(10)
-    print("Stopped")
+    def get_current_status(self):
+        """
+        Returns (window_title, category)
+        """
+        window_title = self.get_active_window_title()
+        category = self.classify_activity(window_title)
+        return window_title, category
 
+# For standalone run
 if __name__ == "__main__":
-    listener = kb.Listener(on_press=on_press)
-    listener.start()
-    current_activity()
+    tracker = ActivityTracker()
+    print("Activity Tracker Started. Press Ctrl+C to stop.")
+    try:
+        while True:
+            window_title, category = tracker.get_current_status()
+            print(f"Window: {window_title} | Category: {category}")
+            time.sleep(10)
+    except KeyboardInterrupt:
+        print("Stopped")
