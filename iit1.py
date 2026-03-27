@@ -14,6 +14,7 @@ def validate_stream(active_window, face_conf_value):
     )
 
 # Refactored: Imports and background tracker management
+
 import gradio as gr
 import pandas as pd
 import datetime
@@ -22,18 +23,26 @@ import time
 import csv
 from main import FocusTracker
 from activity import ActivityTracker
+from controller import EnvironmentController
 
-# Global State
 history = []
 focus_tracker = None
 activity_tracker = None
+
+
+
+
+# Controller state and timers (module-level globals)
 focus_tracker_thread = None
 last_plot_time = 0
 window_history = []
 low_focus_start_time = None
 last_warning_time = 0
+controller = EnvironmentController()
+wasting_start_time = None
+already_triggered = False
+last_category = None
 
-# Start background trackers only once
 def start_background_trackers():
     global focus_tracker, activity_tracker, focus_tracker_thread
     if focus_tracker is None:
@@ -42,7 +51,6 @@ def start_background_trackers():
     if activity_tracker is None:
         activity_tracker = ActivityTracker()
 
-# Helper to read latest row from CSV
 def read_latest_focus_csv(csv_path="focus_data.csv"):
     try:
         with open(csv_path, "r") as f:
@@ -61,6 +69,8 @@ def read_latest_focus_csv(csv_path="focus_data.csv"):
 
 def team_data_bridge():
     global low_focus_start_time, last_warning_time
+    global wasting_start_time, already_triggered, last_category
+    global history, last_plot_time, window_history
     start_background_trackers()
 
     # 1. Get latest focus metrics
@@ -71,12 +81,11 @@ def team_data_bridge():
     
     current_time = time.time()
 
-    # --- 15-SECOND PERSISTENT WARNING LOGIC ---
+    # --- 15-SECOND PERSISTENT WARNING LOGIC (unchanged) ---
     if focus_score < 50:
         if low_focus_start_time is None:
             # Start the timer when focus first drops
             low_focus_start_time = current_time
-        
         # Check if 15 seconds have passed AND we haven't warned in the last 30 seconds
         elapsed_low_focus = current_time - low_focus_start_time
         if elapsed_low_focus >= 15 and (current_time - last_warning_time > 30):
@@ -89,18 +98,40 @@ def team_data_bridge():
 
     # 2. Get current window and category
     window_title, category = activity_tracker.get_current_status()
-    
-    global window_history
+
+    # --- Decoupled Autonomous Focus Controller Logic ---
+    # Track wasting app duration independently
+    if category == "wasting":
+        if last_category != "wasting":
+            wasting_start_time = current_time
+            already_triggered = False
+        elif wasting_start_time is None:
+            wasting_start_time = current_time
+        elapsed_wasting = current_time - wasting_start_time if wasting_start_time else 0
+        if elapsed_wasting > 20 and not already_triggered:
+            controller.close_distracting_apps(window_title)
+            controller.trigger_study_mode()
+            controller.play_voice_alert()
+            already_triggered = True
+    else:
+        # Reset wasting timer and trigger flag if not wasting
+        wasting_start_time = None
+        already_triggered = False
+        # Reset distracted_time to 0 for non-wasting apps
+        distracted_time = 0
+    last_category = category
+    # ----------------------------------------
+
     entry = {"Time": focus_metrics["Time"], "Window": window_title, "Category": category}
     window_history.append(entry)
     if len(window_history) > 20: window_history.pop(0)
-    
+
     active_app = f"{window_title[:20]}... ({category})"
     productivity = focus_score
+    # Show the reset distracted_time for non-wasting apps
     time_str = f"{distracted_time}s"
 
     # 3. Update history for graph
-    global last_plot_time
     if current_time - last_plot_time >= 3:
         history.append({"Time": focus_metrics["Time"], "Productivity": productivity, "App": category.capitalize()})
         if len(history) > 20: history.pop(0)
