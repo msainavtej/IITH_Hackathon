@@ -9,7 +9,7 @@ import requests
 from openai import OpenAI
 from dotenv import load_dotenv
 
-from main import FocusTracker
+from vision import FocusTracker
 from activity import ActivityTracker
 from controller import EnvironmentController
 
