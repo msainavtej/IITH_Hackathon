@@ -23,6 +23,12 @@ class FocusTracker:
         }
         self._stop_event = threading.Event()
         self._thread = None
+        # Calibration variables
+        self.is_calibrating = True
+        self.calibration_data = []
+        self.baseline_confidence = None
+        self._calibration_lock = threading.Lock()
+        self._calibration_start_time = None
 
     def start(self):
         if self._thread is None or not self._thread.is_alive():
@@ -34,10 +40,20 @@ class FocusTracker:
         self._stop_event.set()
         if self._thread:
             self._thread.join()
+        # Ensure OpenCV window is closed
+        try:
+            cv2.destroyAllWindows()
+        except Exception:
+            pass
 
     def get_latest_metrics(self):
         """Return the latest focus metrics as a dict."""
         return self._latest_metrics.copy()
+
+    def get_calibration_status(self):
+        """Return (is_calibrating, baseline_confidence) in a thread-safe way."""
+        with self._calibration_lock:
+            return self.is_calibrating, self.baseline_confidence
 
     def _run(self):
         # Open CSV and write header if needed
@@ -52,6 +68,17 @@ class FocusTracker:
         face_mesh = mp_face_mesh.FaceMesh(refine_landmarks=True, max_num_faces=1)
         cap = cv2.VideoCapture(0)
 
+        # Calibration phase variables
+        with self._calibration_lock:
+            self.is_calibrating = True
+            self.calibration_data = []
+            self.baseline_confidence = None
+            self._calibration_start_time = time.time()
+
+        if not cap.isOpened():
+            print("[FocusTracker] Camera could not be opened.")
+            return
+
         while not self._stop_event.is_set():
             ret, frame = cap.read()
             if not ret:
@@ -61,6 +88,44 @@ class FocusTracker:
             frame = cv2.flip(frame, 1)
             rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             results = face_mesh.process(rgb_frame)
+
+            # --- Calibration Phase ---
+            with self._calibration_lock:
+                calibrating = self.is_calibrating
+                calibration_start = self._calibration_start_time
+            now = time.time()
+            face_confidence = 0
+            if results.multi_face_landmarks:
+                face_confidence = 100
+            if calibrating:
+                with self._calibration_lock:
+                    self.calibration_data.append(face_confidence)
+                    elapsed = now - calibration_start
+                    if elapsed >= 5.0:
+                        if self.calibration_data:
+                            baseline = sum(self.calibration_data) / len(self.calibration_data)
+                        else:
+                            baseline = 100
+                        self.baseline_confidence = baseline
+                        self.is_calibrating = False
+                current_time = datetime.now().strftime("%H:%M:%S")
+                self._latest_metrics = {
+                    "Time": current_time,
+                    "Focus Score": face_confidence,
+                    "Reason": "Calibrating...",
+                    "Distracted Time": 0
+                }
+                cv2.putText(frame, f"Calibrating...", (30, 40),
+                            cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
+                cv2.imshow("Focus Tracker AI", frame)
+                if cv2.waitKey(1) & 0xFF == 27:
+                    break
+                time.sleep(0.05)
+                continue
+
+            # --- Normal Focus Logic ---
+            with self._calibration_lock:
+                threshold = self.baseline_confidence * 0.8 if self.baseline_confidence is not None else 50
 
             focus_score = 100
             reason = "Focused"
@@ -105,8 +170,7 @@ class FocusTracker:
                 focus_score = 0
                 reason = "No face detected"
 
-            # Time-based distraction
-            if focus_score < 50:
+            if focus_score < threshold:
                 if self._distracted_start is None:
                     self._distracted_start = time.time()
                 distracted_time = int(time.time() - self._distracted_start)
@@ -114,22 +178,15 @@ class FocusTracker:
                 self._distracted_start = None
                 distracted_time = 0
 
-            # Autonomous action (not shown)
-            # ...
-
-            # Display (optional, comment out for headless)
             cv2.putText(frame, f"Focus Score: {focus_score}", (30, 40),
                         cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 0), 2)
             cv2.putText(frame, f"Reason: {reason}", (30, 80),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
             cv2.putText(frame, f"Distracted Time: {distracted_time}s", (30, 120),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
-            # cv2.putText(frame, f"Action: {action}", (30, 160),
-            #             cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 0, 255), 3)
-            # cv2.imshow("Focus Tracker AI", frame)
-
-            # if cv2.waitKey(1) & 0xFF == 27:  # ESC to exit
-            #     break
+            cv2.imshow("Focus Tracker AI", frame)
+            if cv2.waitKey(1) & 0xFF == 27:
+                break
 
             current_time = datetime.now().strftime("%H:%M:%S")
             if time.time() - self._last_logged_time > 1:
