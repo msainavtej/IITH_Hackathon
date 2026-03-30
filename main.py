@@ -67,6 +67,21 @@ class FocusTracker:
 
                 if results.multi_face_landmarks:
                     for face_landmarks in results.multi_face_landmarks:
+                        # Draw important facial landmarks: eyes, eyebrows, nose, mouth
+                        important_indices = set()
+                        # Eyes
+                        important_indices.update([33, 133, 160, 159, 158, 144, 153, 154, 155, 362, 263, 387, 386, 385, 373, 380, 381, 382])
+                        # Eyebrows
+                        important_indices.update([70, 63, 105, 66, 107, 336, 296, 334, 293, 300])
+                        # Nose
+                        important_indices.update([1, 2, 98, 327, 168, 195, 5, 4, 51, 280])
+                        # Mouth
+                        important_indices.update([61, 291, 78, 308, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308])
+                        for idx in important_indices:
+                            px = int(face_landmarks.landmark[idx].x * w)
+                            py = int(face_landmarks.landmark[idx].y * h)
+                            cv2.circle(frame, (px, py), 2, (0, 255, 0), -1)
+
                         # Eye detection using Eye Aspect Ratio (EAR)
                         left_eye_indices = [33, 160, 158, 133, 153, 144]
                         eye_points = []
@@ -74,13 +89,11 @@ class FocusTracker:
                             px = int(face_landmarks.landmark[idx].x * w)
                             py = int(face_landmarks.landmark[idx].y * h)
                             eye_points.append((px, py))
-                            cv2.circle(frame, (px, py), 2, (0, 255, 0), -1)
 
                         # Calculate EAR
                         v1 = math.hypot(eye_points[1][0] - eye_points[5][0], eye_points[1][1] - eye_points[5][1])
                         v2 = math.hypot(eye_points[2][0] - eye_points[4][0], eye_points[2][1] - eye_points[4][1])
                         h_dist = math.hypot(eye_points[0][0] - eye_points[3][0], eye_points[0][1] - eye_points[3][1])
-                        
                         ear = (v1 + v2) / (2.0 * h_dist) if h_dist > 0 else 0
 
                         # Typical EAR for open eyes is ~0.30. Closed is usually < 0.20.
@@ -93,13 +106,10 @@ class FocusTracker:
                         face_left = min(all_x)
                         face_right = max(all_x)
                         face_width = face_right - face_left
-                        
                         nose_x = face_landmarks.landmark[1].x
-                        
                         # Calculate where the nose is as a percentage of the face width
                         if face_width > 0:
                             gaze_ratio = (nose_x - face_left) / face_width
-                            
                             if gaze_ratio < 0.35:
                                 focus_score -= 50
                                 reason = "Looking left"
@@ -134,6 +144,12 @@ class FocusTracker:
                         "Reason": reason,
                         "Distracted Time": distracted_time
                     }
+
+                # Show camera feed with facial landmarks
+                cv2.imshow('Proctor Camera Feed', frame)
+                key = cv2.waitKey(1) & 0xFF
+                if key == ord('q'):
+                    break
 
         finally:
             # This guarantees the webcam light turns off even if the code crashes
